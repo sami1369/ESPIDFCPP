@@ -4,6 +4,23 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+bool oneWireReset(CPPGPIO &gpio) {
+  // Step 1: Pull the line low for 480 µs to reset devices
+  // Pull the line low for 480 µs to reset devices
+  gpio.clearPin();
+  ets_delay_us(480);
+
+  // Release the line and wait for the presence pulse
+  gpio.setPin();
+  ets_delay_us(70); // Wait for at least 60 µs for presence pulse
+
+  // Read the line to check for the presence pulse
+  bool presence = gpio.read() == 0;
+  ets_delay_us(410); // Wait for the remainder of the 480 µs
+
+  return presence; // Return true if the device responded with a presence pulse
+}
+
 void writeByte(CPPGPIO &gpio, uint8_t data) {
   for (int i = 0; i < 8; i++) {
     bool bit = (data >> i) & 0x01; // Extract the LSB
@@ -55,29 +72,18 @@ uint8_t readByte(CPPGPIO &gpio) {
 extern "C" void app_main(void) {
   // Step 1: Initialize GPIO for One-Wire Protocol
   CPPGPIO oneWire{GPIO_NUM_15, GPIO_MODE_INPUT_OUTPUT_OD, GPIO_PULLUP_ENABLE};
-
+  printf("GPIO initialized for One-Wire protocol.\n");
   while (true) {
-    // Step 2: Send Reset Pulse and Check for Presence
-    // Pull the line low for 480 µs to reset devices
-    oneWire.clearPin();
-    ets_delay_us(480);
 
-    // Release the line and wait for the presence pulse
-    oneWire.setPin();
-    ets_delay_us(70); // Wait for at least 60 µs for presence pulse
 
-    // Read the line to check for the presence pulse
-    bool presence = oneWire.read() == 0;
-    ets_delay_us(410); // Wait for the remainder of the 480 µs
-
-    if (presence) {
+    if (oneWireReset(oneWire)) {
       printf("Device detected on one-wire bus.\n");
       // Step 3: Write a Byte (Example: Sending a Reset Command)
       writeByte(oneWire, 0xCC); // Skip ROM command (0xCC)
       writeByte(oneWire, 0x44); // Convert Temperature command (0x44)
-      // Delay for conversion time (750 ms typical for 12-bit resolution)
-      vTaskDelay(pdMS_TO_TICKS(1000));
 
+      // Delay for conversion time (750 ms typical for 12-bit resolution)
+      oneWireReset(oneWire);
       // Step 6: Read Temperature Data (from scratchpad)
       writeByte(oneWire, 0xCC); // Skip ROM command
       writeByte(oneWire, 0xBE); // Read Scratchpad command
